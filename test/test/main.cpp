@@ -8,6 +8,8 @@
 using namespace cv;
 using namespace std;
 
+//#define SAVE_RAW
+
 #define WIDTH  1920
 #define HEIGHT 1080
 
@@ -29,6 +31,7 @@ unsigned char*  pRawData;
 unsigned short* pRawData_10;
 IplImage*		pRgbDataInt8;
 IplImage*       pYuvData_10;
+IplImage*		pBayerData_10;
 
 int Read_File()
 {
@@ -88,10 +91,11 @@ int Mipi_Raw_To_Raw10()
 	char img_new[] = "a_new.raw";
 	char* new_rawFileName = img_new;
 
+	int ret;
 	FILE *fp_1 = NULL;
 	fp_1 = fopen(new_rawFileName, "wb");
 
-	ret = fwrite(pRawData_10, 1, WIDTH * HEIGHT, fp_1);
+	ret = fwrite(pRawData_10, 1, WIDTH * HEIGHT * sizeof(unsigned short), fp_1);
 
 	if (1 != ret)
 	{
@@ -116,13 +120,34 @@ int Mipi_Raw_To_Raw10()
 	return 0;
 }
 
+int gamma_correction()
+{
+	printf("enter gamma_correction\n");
+	
+	unsigned short LUT[1024];
+	float gamma_val = 1.2;
+	for (int i = 0; i < 1024; i++)
+	{
+		LUT[i] = (unsigned short)(pow((float)(i / 1023.0), gamma_val)*(float)1023.0);
+		printf("LUT[%d]:%d\n", i, LUT[i]);
+	}
+
+	for (int i = 0; i < HEIGHT * WIDTH; i++) {
+		pRawData_10[i] = LUT[pRawData_10[i]];
+	}
+
+	printf("exit gamma_correction\n");
+	return 0;
+}
+
+
 int Raw10_To_Rgb()
 {
 	printf("enter Raw10_To_Rgb\n");
-	IplImage *pBayerData_10 = cvCreateImage(cvSize(WIDTH, HEIGHT), IPL_DEPTH_16U, 1);
 	IplImage *pRgbDataInt10 = cvCreateImage(cvSize(WIDTH, HEIGHT), IPL_DEPTH_16U, 3);
 	pRgbDataInt8 = cvCreateImage(cvSize(WIDTH, HEIGHT), IPL_DEPTH_8U, 3);
-	memcpy(pBayerData_10->imageData, (short *)pRawData_10, WIDTH*HEIGHT * sizeof(unsigned short));
+	pBayerData_10 = cvCreateImage(cvSize(WIDTH, HEIGHT), IPL_DEPTH_16U, 1);
+	memcpy(pBayerData_10->imageData, (short *)pRawData_10, WIDTH * HEIGHT * sizeof(unsigned short));
 	cvCvtColor(pBayerData_10, pRgbDataInt10, CV_BayerRG2BGR);
 
 	/*将10bit数据转换为8bit*/
@@ -294,6 +319,7 @@ int Rgb_To_Yuv()
 	return 0;
 }
 
+
 int End_Process()
 {
 	cvReleaseImage(&pRgbDataInt8);
@@ -308,6 +334,8 @@ int ISP_PROCESS()
 	Read_File();
 
 	Mipi_Raw_To_Raw10();
+
+	gamma_correction();
 
 	Raw10_To_Rgb();
 
