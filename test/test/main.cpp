@@ -9,6 +9,7 @@ using namespace cv;
 using namespace std;
 
 //#define SAVE_RAW
+#define SAVE_YUV
 
 #define WIDTH  1920
 #define HEIGHT 1080
@@ -25,12 +26,10 @@ int min(int a, int b)
 	}
 }
 
-//#define SAVE_RAW
-
 unsigned char*  pRawData;
 unsigned short* pRawData_10;
 IplImage*		pRgbDataInt8;
-IplImage*       pYuvData_10;
+IplImage*       pYuYvData_8;
 IplImage*		pBayerData_10;
 
 int Read_File()
@@ -43,7 +42,6 @@ int Read_File()
 
 	int ret = 0;
 	int width_10bit = WIDTH * 10 / 8;
-
 
 	pRawData = (unsigned char*)malloc(width_10bit * HEIGHT * sizeof(unsigned char));//改为malloc在堆上分配内存
 
@@ -110,7 +108,6 @@ int Mipi_Raw_To_Raw10()
 
 	imwrite("a_new.bmp", iMat);
 
-
 	Mat test = imread("a_new.bmp");
 	imshow("test", test);
 	waitKey(0);
@@ -123,14 +120,25 @@ int Mipi_Raw_To_Raw10()
 int gamma_correction()
 {
 	printf("enter gamma_correction\n");
+	char gamma_LUT[] = "gamma_LUT.txt";
+	char* gamma_LUTFileName = gamma_LUT;
+
+	FILE *fp = NULL;
+
+	fp = fopen(gamma_LUTFileName, "wb");
 	
 	unsigned short LUT[1024];
 	float gamma_val = 1.2;
+
 	for (int i = 0; i < 1024; i++)
 	{
 		LUT[i] = (unsigned short)(pow((float)(i / 1023.0), gamma_val)*(float)1023.0);
-		printf("LUT[%d]:%d\n", i, LUT[i]);
+		//printf("LUT[%d]:%d\n", i, LUT[i]);
+		fprintf(fp, "%d\n ", LUT[i]);
 	}
+
+	//fwrite(LUT, 1024, 2, fp);
+	fclose(fp);
 
 	for (int i = 0; i < HEIGHT * WIDTH; i++) {
 		pRawData_10[i] = LUT[pRawData_10[i]];
@@ -152,7 +160,6 @@ int Raw10_To_Rgb()
 
 	/*将10bit数据转换为8bit*/
 	cvConvertScale(pRgbDataInt10, pRgbDataInt8, 1, 0);
-
 
 	cvReleaseImage(&pBayerData_10);
 	cvNamedWindow("rgb_10", 1);
@@ -299,6 +306,9 @@ int AWB()
 	cvShowImage("rgb_awb", pRgbDataInt8);
 	cvWaitKey(0);
 
+	Mat iMat_rgb(HEIGHT, WIDTH, CV_8UC3, pRgbDataInt8->imageData);
+	imwrite("a_rgb.bmp", iMat_rgb);
+
 	cvDestroyWindow("rgb_awb");
 	printf("exit AWB\n");
 	return 0;
@@ -307,12 +317,31 @@ int AWB()
 int Rgb_To_Yuv()
 {
 	printf("enter Rgb_To_Yuv\n");
-	pYuvData_10 = cvCreateImage(cvSize(WIDTH, HEIGHT), 8, 3);
-	cvCvtColor(pRgbDataInt8, pYuvData_10, CV_BGR2YUV);
+	pYuYvData_8 = cvCreateImage(cvSize(WIDTH, HEIGHT), IPL_DEPTH_8U, 3);
+	cvCvtColor(pRgbDataInt8, pYuYvData_8, CV_BGR2YUV);
 
 	cvNamedWindow("yuv_10", 1);
-	cvShowImage("yuv_10", pYuvData_10);
+	cvShowImage("yuv_10", pYuYvData_8);
 	cvWaitKey(0);
+
+	char img_new[] = "a_new.yuv";
+	char* new_rawFileName = img_new;
+
+#ifdef SAVE_YUV
+	int ret;
+	FILE *fp_1 = NULL;
+	fp_1 = fopen(new_rawFileName, "wb");
+
+	ret = fwrite(pYuYvData_8->imageData, 1, WIDTH * HEIGHT * 3, fp_1);
+
+	if (1 != ret)
+	{
+		printf("Fail to fwrite data!\n");
+		return -1;
+	}
+
+	fclose(fp_1);
+#endif
 
 	cvDestroyWindow("yuv_10");
 	printf("exit Rgb_To_Yuv\n");
@@ -323,7 +352,7 @@ int Rgb_To_Yuv()
 int End_Process()
 {
 	cvReleaseImage(&pRgbDataInt8);
-	cvReleaseImage(&pYuvData_10);
+	cvReleaseImage(&pYuYvData_8);
 
 	return 0;
 }
