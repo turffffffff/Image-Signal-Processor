@@ -14,17 +14,10 @@ using namespace std;
 #define WIDTH  1920
 #define HEIGHT 1080
 
-int min(int a, int b)
-{
-	if (a > b) 
-	{
-		return b;
-	}
-	else
-	{
-		return a;
-	}
-}
+#define MAX(a,b)            (((a) > (b)) ? (a) : (b))
+#define MIN(a,b)            (((a) < (b)) ? (a) : (b))
+#define clip(x,a,b)  (MAX(a,MIN(x,b)))
+#define CLIP          clip
 
 unsigned char*  pRawData;
 unsigned short* pRawData_10;
@@ -117,7 +110,22 @@ int Mipi_Raw_To_Raw10()
 	return 0;
 }
 
-int gamma_correction()
+int Luma_Correction()
+{
+	printf("enter luma_correction\n");
+	short luma_c;
+	luma_c = -40;
+
+	for (int i = 0; i < HEIGHT * WIDTH; i++) {
+		pRawData_10[i] = CLIP((pRawData_10[i] + luma_c), 0, 1023);
+	}
+	printf("luma_c = %d\n", luma_c);
+
+	printf("exit luma_correction\n");
+	return 0;
+}
+
+int Gamma_Correction()
 {
 	printf("enter gamma_correction\n");
 	char gamma_LUT[] = "gamma_LUT.txt";
@@ -244,9 +252,9 @@ int AWB()
 				scalar.val[1] *= KG;
 				scalar.val[2] *= KR;
 
-				scalar.val[0] = min(scalar.val[0], 255);
-				scalar.val[1] = min(scalar.val[1], 255);
-				scalar.val[2] = min(scalar.val[2], 255);
+				scalar.val[0] = MIN(scalar.val[0], 255);
+				scalar.val[1] = MIN(scalar.val[1], 255);
+				scalar.val[2] = MIN(scalar.val[2], 255);
 				cvSet2D(pRgbDataInt8, i, j, scalar);
 			}
 		}
@@ -324,10 +332,10 @@ int Rgb_To_Yuv()
 	cvShowImage("yuv_10", pYuYvData_8);
 	cvWaitKey(0);
 
+#ifdef SAVE_YUV
 	char img_new[] = "a_new.yuv";
 	char* new_rawFileName = img_new;
 
-#ifdef SAVE_YUV
 	int ret;
 	FILE *fp_1 = NULL;
 	fp_1 = fopen(new_rawFileName, "wb");
@@ -364,7 +372,9 @@ int ISP_PROCESS()
 
 	Mipi_Raw_To_Raw10();
 
-	gamma_correction();
+	Luma_Correction();
+
+	Gamma_Correction();
 
 	Raw10_To_Rgb();
 
