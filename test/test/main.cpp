@@ -110,6 +110,110 @@ int Mipi_Raw_To_Raw10()
 	return 0;
 }
 
+int DeadPixelDetect(int src0, int src1, int src2, int src3, int src4, int src5)
+{
+	int ValueSrc0 = src0;
+	int ValueSrc1 = src2;
+	int ValueSrc2 = src3 - src1;
+	int ValueSrc3 = src5 - src3;
+	int ValueSrc4 = src4;
+
+	int Coef3 = (-4 * ValueSrc0 + 4 * ValueSrc1 - 6 * ValueSrc2 + 2 * ValueSrc3) * 7 >> 9;
+	int Coef2 = (36 * ValueSrc0 - 36 * ValueSrc1 + 45 * ValueSrc2 - 9 * ValueSrc3) * 7 >> 9;
+	int Coef1 = (-92 * ValueSrc0 + 92 * ValueSrc1 - 66 * ValueSrc2 + 10 * ValueSrc3) * 7 >> 9;
+
+	int ValueEstimate1 = 8 * Coef3 + 4 * Coef2 + 2 * Coef1 + ValueSrc0;
+	int ValueEstimate2 = 26 * Coef3 + 8 * Coef2 + 2 * Coef1;
+	int ValueEstimate3 = 98 * Coef3 + 16 * Coef2 + 2 * Coef1;
+	//int ValueEstimate4 = 64 * Coef3 + 16 * Coef2 + 4 * Coef1 + ValueSrc0;
+	int ValueEstimate4 = (2 * ValueEstimate1 + ValueSrc0 - (2 * ValueEstimate3 + ValueEstimate2)) / 3;
+	if (ValueEstimate4 < 0)	ValueEstimate4 = 0;
+	else if (ValueEstimate4 > 1023) ValueEstimate4 = 1023;
+	return ValueEstimate4;
+
+	//int ValuediffSum = (ValueEstimate1 + ValueEstimate2 + ValueEstimate3) - (ValueSrc0 + ValueSrc1 + ValueSrc2);
+	//int Valuediff4 = ValueEstimate4 - ValueSrc4;
+}
+
+int DPC()
+{
+	int EstimateTH = 100;
+	int row, col;
+	int src0Up, src1Up, src2Up, src3Up, src4Up, src5Up;
+	int src0Dn, src1Dn, src2Dn, src3Dn, src4Dn, src5Dn;
+	int src0Lt, src1Lt, src2Lt, src3Lt, src4Lt, src5Lt;
+	int src0Rt, src1Rt, src2Rt, src3Rt, src4Rt, src5Rt;
+	int ValueEstUp, ValueEstDn, ValueEstLt, ValueEstRt;
+	int EstMax, EstMax1, EstMax2, EstMax3, EstMin, EstMin1, EstMin2, EstMin3, EstMean;
+	for (row = 0; row < HEIGHT; row++)
+	{
+		for (col = 0; col < WIDTH; col++)
+		{
+			if (row > 3 && row < (HEIGHT - 4) && col > 3 && col < (WIDTH - 4))
+			{
+				src0Up = pRawData_10[(row - 4)*WIDTH + col];
+				src1Up = pRawData_10[(row - 3)*WIDTH + col];
+				src2Up = pRawData_10[(row - 2)*WIDTH + col];
+				src3Up = pRawData_10[(row - 1)*WIDTH + col];
+				src4Up = pRawData_10[(row - 0)*WIDTH + col];
+				src5Up = pRawData_10[(row + 1)*WIDTH + col];
+				src0Dn = pRawData_10[(row + 4)*WIDTH + col];
+				src1Dn = pRawData_10[(row + 3)*WIDTH + col];
+				src2Dn = pRawData_10[(row + 2)*WIDTH + col];
+				src3Dn = pRawData_10[(row + 1)*WIDTH + col];
+				src4Dn = pRawData_10[(row + 0)*WIDTH + col];
+				src5Dn = pRawData_10[(row - 1)*WIDTH + col];
+				src0Lt = pRawData_10[row*WIDTH + (col - 4)];
+				src1Lt = pRawData_10[row*WIDTH + (col - 3)];
+				src2Lt = pRawData_10[row*WIDTH + (col - 2)];
+				src3Lt = pRawData_10[row*WIDTH + (col - 1)];
+				src4Lt = pRawData_10[row*WIDTH + (col - 0)];
+				src5Lt = pRawData_10[row*WIDTH + (col + 1)];
+				src0Rt = pRawData_10[row*WIDTH + (col + 4)];
+				src1Rt = pRawData_10[row*WIDTH + (col + 3)];
+				src2Rt = pRawData_10[row*WIDTH + (col + 2)];
+				src3Rt = pRawData_10[row*WIDTH + (col + 1)];
+				src4Rt = pRawData_10[row*WIDTH + (col + 0)];
+				src5Rt = pRawData_10[row*WIDTH + (col - 1)];
+				ValueEstUp = DeadPixelDetect(src0Up, src1Up, src2Up, src3Up, src4Up, src5Up);
+				ValueEstDn = DeadPixelDetect(src0Dn, src1Dn, src2Dn, src3Dn, src4Dn, src5Dn);
+				ValueEstLt = DeadPixelDetect(src0Lt, src1Lt, src2Lt, src3Lt, src4Lt, src5Lt);
+				ValueEstRt = DeadPixelDetect(src0Rt, src1Rt, src2Rt, src3Rt, src4Rt, src5Rt);
+				EstMax1 = MAX(ValueEstDn, ValueEstUp);
+				EstMin1 = MIN(ValueEstDn, ValueEstUp);
+				EstMax2 = MAX(ValueEstLt, ValueEstRt);
+				EstMin2 = MIN(ValueEstLt, ValueEstRt);
+				EstMax3 = MAX((EstMax1 + EstimateTH), (EstMax2 + EstimateTH));
+				EstMin3 = MIN((EstMin1 - EstimateTH), (EstMin2 - EstimateTH));
+				EstMax  = MIN(EstMax3, 1023);
+				EstMin  = MAX(EstMin3, 0);
+				EstMean = CLIP(((EstMax3 + EstMin3) / 2), 0, 1023);
+				if (pRawData_10[row*WIDTH + col] > EstMax)
+				{
+					pRawData_10[row*WIDTH + col] = EstMax;
+					//DPCFlag[row*WIDTH + col] = 1;
+				}
+				else if (pRawData_10[row*WIDTH + col] < EstMin)
+				{
+					pRawData_10[row*WIDTH + col] = EstMin;
+					//DPCFlag[row*WIDTH + col] = 1;
+				}
+				else
+				{
+					pRawData_10[row*WIDTH + col] = pRawData_10[row*WIDTH + col];
+					//DPCFlag[row*WIDTH + col] = 0;
+				}
+			}
+			else
+			{
+				pRawData_10[row*WIDTH + col] = pRawData_10[row*WIDTH + col];
+				//DPCFlag[row*WIDTH + col] = 0;
+			}
+		}
+	}
+	return 0;
+}
+
 int Luma_Correction()
 {
 	printf("enter luma_correction\n");
@@ -212,9 +316,9 @@ int AWB()
 				TB = ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 0] * KB;
 				TG = ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 1] * KG;
 				TR = ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 2] * KR;
-				TB = min(TB, 255);
-				TG = min(TG, 255);
-				TR = min(TR, 255);
+				TB = MIN(TB, 255);
+				TG = MIN(TG, 255);
+				TR = MIN(TR, 255);
 
 				((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 0] = (uchar)TB;
 				((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 1] = (uchar)TG;
@@ -293,9 +397,9 @@ int AWB()
 				TB = ((uchar *)(blueImage->imageData + i * blueImage->widthStep))[j] * KB;
 				TG = ((uchar *)(greenImage->imageData + i * greenImage->widthStep))[j] * KG;
 				TR = ((uchar *)(redImage->imageData + i * redImage->widthStep))[j] * KR;
-				TB = min(TB, 255);
-				TG = min(TG, 255);
-				TR = min(TR, 255);
+				TB = MIN(TB, 255);
+				TG = MIN(TG, 255);
+				TR = MIN(TR, 255);
 				((uchar *)(blueImage->imageData + i * blueImage->widthStep))[j] = TB;
 				((uchar *)(greenImage->imageData + i * greenImage->widthStep))[j] = TG;
 				((uchar *)(redImage->imageData + i * redImage->widthStep))[j] = TR;
@@ -371,6 +475,8 @@ int ISP_PROCESS()
 	Read_File();
 
 	Mipi_Raw_To_Raw10();
+
+	DPC();
 
 	Luma_Correction();
 
