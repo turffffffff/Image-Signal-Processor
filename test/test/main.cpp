@@ -137,14 +137,14 @@ int DeadPixelDetect(int src0, int src1, int src2, int src3, int src4, int src5)
 
 int DPC()
 {
-	int EstimateTH = 100;
+	int EstimateTH = 30;
 	int row, col;
 	int src0Up, src1Up, src2Up, src3Up, src4Up, src5Up;
 	int src0Dn, src1Dn, src2Dn, src3Dn, src4Dn, src5Dn;
 	int src0Lt, src1Lt, src2Lt, src3Lt, src4Lt, src5Lt;
 	int src0Rt, src1Rt, src2Rt, src3Rt, src4Rt, src5Rt;
 	int ValueEstUp, ValueEstDn, ValueEstLt, ValueEstRt;
-	int EstMax, EstMax1, EstMax2, EstMax3, EstMin, EstMin1, EstMin2, EstMin3, EstMean;
+	int EstMax, EstMax1, EstMax2, EstMax3, EstMin, EstMin1, EstMin2, EstMin3;
 	for (row = 0; row < HEIGHT; row++)
 	{
 		for (col = 0; col < WIDTH; col++)
@@ -185,9 +185,8 @@ int DPC()
 				EstMin2 = MIN(ValueEstLt, ValueEstRt);
 				EstMax3 = MAX((EstMax1 + EstimateTH), (EstMax2 + EstimateTH));
 				EstMin3 = MIN((EstMin1 - EstimateTH), (EstMin2 - EstimateTH));
-				EstMax  = MIN(EstMax3, 1023);
-				EstMin  = MAX(EstMin3, 0);
-				EstMean = CLIP(((EstMax3 + EstMin3) / 2), 0, 1023);
+				EstMax  = CLIP(EstMax3, 0, 1023);
+				EstMin  = CLIP(EstMin3, 0, 1023);
 				if (pRawData_10[row*WIDTH + col] > EstMax)
 				{
 					pRawData_10[row*WIDTH + col] = EstMax;
@@ -245,6 +244,7 @@ int Gamma_Correction()
 	for (int i = 0; i < 1024; i++)
 	{
 		LUT[i] = (unsigned short)(pow((float)(i / 1023.0), gamma_val)*(float)1023.0);
+		LUT[i] = CLIP(LUT[i], 0, 1023);
 		//printf("LUT[%d]:%d\n", i, LUT[i]);
 		fprintf(fp, "%d\n ", LUT[i]);
 	}
@@ -284,7 +284,7 @@ int Raw10_To_Rgb()
 	return 0;
 }
 
-unsigned char AWB_Mode = 1;
+unsigned char AWB_Mode = 0;
 int AWB()
 {
 	printf("enter AWB  mode=%d\n", AWB_Mode);
@@ -313,12 +313,16 @@ int AWB()
 
 		for (int i = 0; i < HEIGHT; i++) {
 			for (int j = 0; j < WIDTH; j++) {
-				TB = ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 0] * KB;
-				TG = ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 1] * KG;
-				TR = ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 2] * KR;
-				TB = MIN(TB, 255);
-				TG = MIN(TG, 255);
-				TR = MIN(TR, 255);
+				TB = ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 0];
+				TG = ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 1];
+				TR = ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 2];
+
+				TB = TB + (G - B) *  (TB + TG + TR) / (R + G + B);
+				TR = TR + (G - R) *  (TB + TG + TR) / (R + G + B);
+
+				TB = CLIP(TB, 0, 255); 
+				TG = CLIP(TG, 0, 255);
+				TR = CLIP(TR, 0, 255);
 
 				((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 0] = (uchar)TB;
 				((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 1] = (uchar)TG;
@@ -327,6 +331,42 @@ int AWB()
 		}
 	}
 	else if (AWB_Mode == 1)
+	{
+		for (int i = 0; i < HEIGHT; i++) {
+			for (int j = 0; j < WIDTH; j++) {
+				B += ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 0];
+				G += ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 1];
+				R += ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 2];
+			}
+		}
+		B = B / (HEIGHT * WIDTH);
+		G = G / (HEIGHT * WIDTH);
+		R = R / (HEIGHT * WIDTH);
+		printf("B = %f  G = %f R =%f\n", B, G, R);
+
+		KB = (R + G + B) / (3 * B);
+		KG = (R + G + B) / (3 * G);
+		KR = (R + G + B) / (3 * R);
+
+		printf("KB = %f  KG = %f KR =%f\n", KB, KG, KR);
+
+		for (int i = 0; i < HEIGHT; i++) {
+			for (int j = 0; j < WIDTH; j++) {
+				TB = ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 0] * KB;
+				TG = ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 1] * KG;
+				TR = ((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 2] * KR;
+
+				TB = CLIP(TB, 0, 255);
+				TG = CLIP(TG, 0, 255);
+				TR = CLIP(TR, 0, 255);
+
+				((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 0] = (uchar)TB;
+				((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 1] = (uchar)TG;
+				((uchar *)(pRgbDataInt8->imageData + i * pRgbDataInt8->widthStep))[j * pRgbDataInt8->nChannels + 2] = (uchar)TR;
+			}
+		}
+	}
+	else if (AWB_Mode == 2)
 	{
 		CvScalar scalar;	//scalar
 		for (int i = 0; i < HEIGHT; i++) {
@@ -356,9 +396,9 @@ int AWB()
 				scalar.val[1] *= KG;
 				scalar.val[2] *= KR;
 
-				scalar.val[0] = MIN(scalar.val[0], 255);
-				scalar.val[1] = MIN(scalar.val[1], 255);
-				scalar.val[2] = MIN(scalar.val[2], 255);
+				scalar.val[0] = CLIP(scalar.val[0], 0, 255);
+				scalar.val[1] = CLIP(scalar.val[1], 0, 255);
+				scalar.val[2] = CLIP(scalar.val[2], 0, 255);
 				cvSet2D(pRgbDataInt8, i, j, scalar);
 			}
 		}
@@ -397,9 +437,9 @@ int AWB()
 				TB = ((uchar *)(blueImage->imageData + i * blueImage->widthStep))[j] * KB;
 				TG = ((uchar *)(greenImage->imageData + i * greenImage->widthStep))[j] * KG;
 				TR = ((uchar *)(redImage->imageData + i * redImage->widthStep))[j] * KR;
-				TB = MIN(TB, 255);
-				TG = MIN(TG, 255);
-				TR = MIN(TR, 255);
+				TB = CLIP(TB, 0, 255);
+				TG = CLIP(TG, 0, 255);
+				TR = CLIP(TR, 0, 255);
 				((uchar *)(blueImage->imageData + i * blueImage->widthStep))[j] = TB;
 				((uchar *)(greenImage->imageData + i * greenImage->widthStep))[j] = TG;
 				((uchar *)(redImage->imageData + i * redImage->widthStep))[j] = TR;
